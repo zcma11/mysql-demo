@@ -39,6 +39,28 @@ router.get('/add', async ctx => {
   ctx.body = fs.readFileSync(path.join(__dirname, 'pgae/add.html'), 'utf-8')
 })
 
+router.post('/add', async ctx => {
+  const body = await new Promise(resolve => {
+    let str = ''
+    ctx.req.on('data', e => {
+      console.log((str += e.toString()))
+    })
+    ctx.req.on('end', () => {
+      str = str.split('&')
+      let body = {}
+      str.forEach(s => {
+        const query = s.split('=')
+        body[query[0]] = query[1]
+      })
+      resolve(body)
+    })
+  })
+  await connection.query('insert into `user_db`.user (`username`) values (?)', [
+    decodeURI(body.username)
+  ])
+  ctx.body = '<h1>添加成功</h1>'
+})
+
 app.use(router.routes()).use(router.allowedMethods())
 
 app.listen(3000, () => {
