@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <h1>用户中心</h1>
+    <form method="post" enctype="multipart/form-data">
+      <p id="uid">用户名：{{username}}</p>
+      <div>
+        密码： <input type="text" name="password" value="{{password}}" />
+      </div>
+      <p>性别：{{gender}}</p>
+      <button>修改</button>
+    </form>
+
+    <script>
+      const inputs = document.getElementsByTagName('input')
+      document
+        .getElementsByTagName('button')[0]
+        .addEventListener('click', onclick)
+      function onclick(e) {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', 'http://localhost:3000/change')
+        xhr.responseType = 'json'
+
+        const formData = new FormData(document.getElementsByTagName('form')[0])
+        const _p = formData.get('password')
+        const path = location.pathname.split('/')
+        formData.set('id', path[path.length - 1])
+
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState === 4 && xhr.status >= 200 && xhr.status <= 300) {
+            alert('修改成功')
+            inputs[0].value = _p
+          }
+        }
+        xhr.send(formData)
+        e.preventDefault()
+      }
+    </script>
+  </body>
+</html>

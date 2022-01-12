@@ -2,11 +2,27 @@ const Koa = require('koa')
 const Router = require('@koa/router')
 const mysql = require('mysql2/promise')
 const path = require('path')
+const KoaBody = require('koa-body')({ multipart: true })
 const fs = require('fs')
 const app = new Koa()
 const router = new Router()
+const http = require('http')
+const utils = require('./utils')
+
+const p = utils.partial(path.join, __dirname)
 
 let connection
+app.use(async (ctx, next) => {
+  console.log(ctx.host, ctx.method, ctx.origin)
+  ctx.set('Access-Control-Allow-Origin', '*')
+  ctx.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Content-Length, Authorization, Accept, X-Requested-With'
+  )
+  ctx.set('Access-Control-Allow-Methods', 'OPTIONS, GET, PUT, POST, DELETE')
+  await next()
+})
+
 app.use(async (ctx, next) => {
   if (!connection) {
     connection = await mysql.createConnection({
@@ -20,7 +36,15 @@ app.use(async (ctx, next) => {
   await next()
 })
 
-router.get('/user', async ctx => {
+router.get('/', async ctx => {
+  ctx.redirect('/login')
+})
+
+router.get('/favicon.ico', async ctx => {
+  ctx.body = fs.readFileSync(p('./favicon.ico'))
+})
+
+router.get('/users', async ctx => {
   let [users] = await connection.query('SELECT * FROM `user_db`.user')
   console.log(users)
   ctx.set('Content-Type', 'text/html;charset=utf-8')
@@ -36,7 +60,7 @@ router.get('/user', async ctx => {
 
 router.get('/add', async ctx => {
   ctx.set('Content-Type', 'text/html;charset=utf-8')
-  ctx.body = fs.readFileSync(path.join(__dirname, 'pgae/add.html'), 'utf-8')
+  ctx.body = fs.readFileSync(p('pgae/add.html'), 'utf-8')
 })
 
 router.post('/add', async ctx => {
@@ -61,7 +85,53 @@ router.post('/add', async ctx => {
   ctx.body = '<h1>添加成功</h1>'
 })
 
+router.get('/login', async ctx => {
+  ctx.set('Content-Type', 'text/html;charset=utf-8')
+  ctx.body = fs.readFileSync(p('pgae/login.html'), 'utf-8')
+})
+
+router.post('/login', KoaBody, async ctx => {
+  const { username, password } = ctx.request.body
+  console.log(username, password)
+  const sql = 'select * from `user_db`.user where `username`=?'
+  const [[user]] = await connection.query(sql, [username])
+
+  ctx.set('Content-Type', 'application/json')
+  if (!user) {
+    return (ctx.body = '用户不存在')
+  }
+
+  if (user.password !== password) {
+    return (ctx.body = '密码错误')
+  }
+
+  ctx.body = {
+    data: user,
+    state: 200
+  }
+})
+
+router.get('/user/:id(\\d+)', async (ctx, next) => {
+  const id = ctx.request.params
+  const sql = 'select * from `user_db`.user where `id`=?'
+
+  const [[data]] = await connection.query(sql, [id])
+  ctx.body = fs
+    .readFileSync(p('pgae/user.html'), 'utf-8')
+    .replace(/{{(\w+)}}/g, (_, key) => data[key])
+})
+
+router.post('/change',KoaBody, async (ctx, next) => {
+  const {password, id} = ctx.request.body
+
+  const sql = 'update `user_db`.user set `password`=? where `id`=?'
+  await connection.query(sql, [password, id])
+  ctx.body = '修改成功'
+})
+
 app.use(router.routes()).use(router.allowedMethods())
+
+http.createServer(app.callback()).listen(3001, () => console.log('ok'))
 
 app.listen(3000, () => {
   console.log('连接成功')
