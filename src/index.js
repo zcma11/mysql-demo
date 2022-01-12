@@ -2,18 +2,19 @@ const Koa = require('koa')
 const Router = require('@koa/router')
 const mysql = require('mysql2/promise')
 const path = require('path')
-const KoaBody = require('koa-body')({ multipart: true })
+const KoaBody = require('koa-body')
 const fs = require('fs')
 const app = new Koa()
 const router = new Router()
 const http = require('http')
 const utils = require('./utils')
+const staticCache = require('koa-static-cache')
 
 const p = utils.partial(path.join, __dirname)
 
 let connection
 app.use(async (ctx, next) => {
-  console.log(ctx.host, ctx.method, ctx.origin)
+  console.log(ctx.host, ctx.method, ctx.origin,ctx.url)
   ctx.set('Access-Control-Allow-Origin', '*')
   ctx.set(
     'Access-Control-Allow-Headers',
@@ -35,6 +36,13 @@ app.use(async (ctx, next) => {
 
   await next()
 })
+
+app.use(staticCache({
+  prefix: '/public',
+  dir: './public',
+  dynamic: true,
+  gzip: true
+}))
 
 router.get('/', async ctx => {
   ctx.redirect('/login')
@@ -79,10 +87,11 @@ router.post('/add', async ctx => {
       resolve(body)
     })
   })
-  await connection.query('insert into `user_db`.user (`username`) values (?)', [
-    decodeURI(body.username)
-  ])
-  ctx.body = '<h1>添加成功</h1>'
+  await connection.query(
+    'insert into `user_db`.user (`username`, `password`, `gender`) values (?,?,?)',
+    [decodeURI(body.username), decodeURI(body.password), decodeURI(body.gender)]
+  )
+  ctx.body = '<h1>添加成功</h1><a href="/login">去登录</a>'
 })
 
 router.get('/login', async ctx => {
@@ -90,7 +99,7 @@ router.get('/login', async ctx => {
   ctx.body = fs.readFileSync(p('pgae/login.html'), 'utf-8')
 })
 
-router.post('/login', KoaBody, async ctx => {
+router.post('/login', KoaBody({ multipart: true }), async ctx => {
   const { username, password } = ctx.request.body
   console.log(username, password)
   const sql = 'select * from `user_db`.user where `username`=?'
@@ -112,22 +121,35 @@ router.post('/login', KoaBody, async ctx => {
 })
 
 router.get('/user/:id(\\d+)', async (ctx, next) => {
-  const id = ctx.request.params
+  const { id } = ctx.request.params
   const sql = 'select * from `user_db`.user where `id`=?'
-
   const [[data]] = await connection.query(sql, [id])
+  // console.log(data)
   ctx.body = fs
     .readFileSync(p('pgae/user.html'), 'utf-8')
     .replace(/{{(\w+)}}/g, (_, key) => data[key])
 })
 
-router.post('/change',KoaBody, async (ctx, next) => {
-  const {password, id} = ctx.request.body
+router.post(
+  '/change',
+  KoaBody({ multipart: true, formidable: { uploadDir: './public/avatar', keepExtensions: true } }),
+  async (ctx, next) => {
+    const { password, id } = ctx.request.body
+    const { avatar } = ctx.request.files
 
-  const sql = 'update `user_db`.user set `password`=? where `id`=?'
-  await connection.query(sql, [password, id])
-  ctx.body = '修改成功'
-})
+    console.log(avatar)
+    const body = [password]
+    let sql = 'update `user_db`.user set `password`=?'
+    if (avatar) {
+      sql += ', avatar=?'
+      body.push(avatar.path)
+    }
+
+    sql += ' where `id`=?'
+    await connection.query(sql, [...body, id])
+    ctx.body = '修改成功'
+  }
+)
 
 app.use(router.routes()).use(router.allowedMethods())
 
