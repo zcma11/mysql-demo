@@ -12,9 +12,10 @@ const staticCache = require('koa-static-cache')
 
 const p = utils.partial(path.join, __dirname)
 
+app.keys = ['hello']
 let connection
 app.use(async (ctx, next) => {
-  console.log(ctx.host, ctx.method, ctx.origin,ctx.url)
+  console.log(ctx.host, ctx.method, ctx.origin, ctx.url)
   ctx.set('Access-Control-Allow-Origin', '*')
   ctx.set(
     'Access-Control-Allow-Headers',
@@ -37,12 +38,19 @@ app.use(async (ctx, next) => {
   await next()
 })
 
-app.use(staticCache({
-  prefix: '/public',
-  dir: './public',
-  dynamic: true,
-  gzip: true
-}))
+app.use(
+  staticCache({
+    prefix: '/public',
+    dir: './public',
+    dynamic: true,
+    gzip: true
+  })
+)
+
+app.use(async (ctx, next) => {
+  ctx.state.user = ctx.cookies.get('user', { signed: true })
+  await next()
+})
 
 router.get('/', async ctx => {
   ctx.redirect('/login')
@@ -114,6 +122,14 @@ router.post('/login', KoaBody({ multipart: true }), async ctx => {
     return (ctx.body = '密码错误')
   }
 
+  ctx.cookies.set(
+    'user',
+    JSON.stringify({
+      id: user.id,
+      username: encodeURI(user.username)
+    }),
+    { signed: true, maxAge: 60 * 60 * 1000 * 24 }
+  )
   ctx.body = {
     data: user,
     state: 200
@@ -121,6 +137,9 @@ router.post('/login', KoaBody({ multipart: true }), async ctx => {
 })
 
 router.get('/user/:id(\\d+)', async (ctx, next) => {
+  if (!ctx.state.user) {
+    return (ctx.body = '你没有权限')
+  }
   const { id } = ctx.request.params
   const sql = 'select * from `user_db`.user where `id`=?'
   const [[data]] = await connection.query(sql, [id])
@@ -132,7 +151,10 @@ router.get('/user/:id(\\d+)', async (ctx, next) => {
 
 router.post(
   '/change',
-  KoaBody({ multipart: true, formidable: { uploadDir: './public/avatar', keepExtensions: true } }),
+  KoaBody({
+    multipart: true,
+    formidable: { uploadDir: './public/avatar', keepExtensions: true }
+  }),
   async (ctx, next) => {
     const { password, id } = ctx.request.body
     const { avatar } = ctx.request.files
